@@ -34,15 +34,17 @@ class Pipeline:
         secret_key: str
         public_key: str
         host: str
+        replace_prefix: str
 
     def __init__(self):
         self.type = "filter"
-        self.name = "Langfuse Filter Test"
+        self.name = "OpenWebUIDebug"
         self.valves = self.Valves(
             **{
                 "pipelines": ["*"],
                 "secret_key": os.getenv("LANGFUSE_SECRET_KEY", "your-secret-key-here"),
                 "public_key": os.getenv("LANGFUSE_PUBLIC_KEY", "your-public-key-here"),
+                "replace_prefix": os.getenv("REPLACE_PREFIX", "your-replace-prefix-here"),
                 "host": os.getenv("LANGFUSE_HOST", "https://us.cloud.langfuse.com"),
             }
         )
@@ -50,11 +52,9 @@ class Pipeline:
         self.chat_generations = {}
 
     async def on_startup(self):
-        logging.info(f"on_startup:{__name__}")
         self.set_langfuse()
 
     async def on_shutdown(self):
-        logging.info(f"on_shutdown:{__name__}")
         self.langfuse.flush()
 
     async def on_valves_updated(self):
@@ -70,16 +70,11 @@ class Pipeline:
             )
             self.langfuse.auth_check()
         except UnauthorizedError:
-            logging.error(
-                "Langfuse credentials incorrect. Please re-enter your Langfuse credentials in the pipeline settings."
-            )
+            logging.error("Langfuse credentials incorrect. Please re-enter your Langfuse credentials in the pipeline settings.")
         except Exception as e:
             logging.error(f"Langfuse error: {e} Please re-enter your Langfuse credentials in the pipeline settings.")
 
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        logging.info(f"inlet:{__name__}")
-        logging.info(f"Received body: {body}")
-        logging.info(f"User: {user}")
 
         # Check for presence of required keys and generate chat_id if missing
         if "chat_id" not in body:
@@ -95,12 +90,11 @@ class Pipeline:
             logging.error(error_message)
             raise ValueError(error_message)
 
-        logging.info(f"chat_id: {body['chat_id']}")
-
+        email = user["email"].replace(self.valves.replace_prefix, "")
         trace = self.langfuse.trace(
-            name=f"filter:{__name__}",
+            name=f"OpenWebUIDebug",
             input=body,
-            user_id=user["email"],
+            user_id=email,
             metadata={"user_name": user["name"], "user_id": user["id"]},
             session_id=body["chat_id"],
         )
@@ -113,23 +107,16 @@ class Pipeline:
         )
 
         self.chat_generations[body["chat_id"]] = generation
-        logging.info(f"Chat ID: {body['chat_id']}")
-        logging.info(trace.get_trace_url())
 
         return body
 
     async def outlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        logging.info(f"outlet:{__name__}")
-        logging.info(f"Received body: {body}")
         if body["chat_id"] not in self.chat_generations:
             return body
 
-        logging.info(f"chat_id: {body['chat_id']}")
-
-        generation = self.chat_generations[body["chat_id']]
+        generation = self.chat_generations[body["chat_id"]]
         assistant_message = get_last_assistant_message(body["messages"])
 
-        
         # Extract usage information for models that support it
         usage = None
         assistant_message_obj = get_last_assistant_message_obj(body["messages"])
@@ -153,6 +140,6 @@ class Pipeline:
         )
 
         # Clean up the chat_generations dictionary
-        del self.chat_generations[body["chat_id']]
+        del self.chat_generations[body["chat_id"]]
 
         return body
